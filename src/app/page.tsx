@@ -1,64 +1,1294 @@
-import Image from "next/image";
+"use client";
+
+import { startTransition, useEffect, useMemo, useRef, useState } from "react";
+import { motion, AnimatePresence } from "framer-motion";
+import {
+  AlertCircle,
+  BarChart3,
+  Bell,
+  BookOpenCheck,
+  CheckCircle2,
+  Clock10,
+  Flame,
+  GraduationCap,
+  LogIn,
+  LogOut,
+  Plus,
+  RefreshCcw,
+  ShieldCheck,
+  Sparkles,
+  Target,
+  TimerReset,
+  Trash2,
+  Trophy,
+  UploadCloud,
+  UserPlus,
+  UsersRound,
+} from "lucide-react";
+import clsx from "clsx";
+import bcrypt from "bcryptjs";
+import { supabase } from "@/lib/supabaseClient";
+
+const TOTAL_TIME = 10 * 60; // 10 minutes in seconds
+const QUIZ_STORAGE_KEY = "pulse-quiz-data-v1";
+const RESULTS_STORAGE_KEY = "pulse-quiz-results-v1";
+const SESSION_STORAGE_KEY = "pulse-quiz-session-v1";
+const TEACHER_PIN = "4310";
+const softCap = 10;
+
+type QuizQuestion = {
+  id: string;
+  prompt: string;
+  options: string[];
+  answerIndex: number;
+};
+
+type Quiz = {
+  id: string;
+  title: string;
+  description: string;
+  questions: QuizQuestion[];
+  publishedAt: string;
+};
+
+type StudentResult = {
+  id: string;
+  quizId: string;
+  studentName: string;
+  score: number;
+  total: number;
+  percentage: number;
+  submittedAt: string;
+  duration: number;
+  answers: number[];
+  reason: "manual" | "timeout";
+};
+
+type StudentUser = {
+  name: string;
+  passwordHash: string;
+};
+
+type Session = {
+  role: "teacher" | "student";
+  name: string;
+};
+
+const buildId = () =>
+  typeof crypto !== "undefined" && crypto.randomUUID
+    ? crypto.randomUUID()
+    : Math.random().toString(36).slice(2);
+
+const createEmptyQuestion = (): QuizQuestion => ({
+  id: buildId(),
+  prompt: "",
+  options: ["", "", "", ""],
+  answerIndex: 0,
+});
+
+const formatTime = (seconds: number) => {
+  const mins = Math.floor(seconds / 60)
+    .toString()
+    .padStart(2, "0");
+  const secs = (seconds % 60).toString().padStart(2, "0");
+  return `${mins}:${secs}`;
+};
 
 export default function Home() {
-  return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
+  const [hydrated, setHydrated] = useState(false);
+
+  // ---- auth ----
+  const [session, setSession] = useState<Session | null>(null);
+  const [students, setStudents] = useState<StudentUser[]>([]);
+  const [authMode, setAuthMode] = useState<
+    "student-login" | "student-register" | "teacher"
+  >("student-login");
+  const [formName, setFormName] = useState("");
+  const [formPassword, setFormPassword] = useState("");
+  const [teacherPinInput, setTeacherPinInput] = useState("");
+  const [authError, setAuthError] = useState<string | null>(null);
+  const [authLoading, setAuthLoading] = useState(false);
+
+  // ---- quiz data ----
+  const [quiz, setQuiz] = useState<Quiz | null>(null);
+  const [results, setResults] = useState<StudentResult[]>([]);
+
+  // ---- teacher builder ----
+  const [title, setTitle] = useState("Pulse Quiz");
+  const [description, setDescription] = useState(
+    "A 10-minute sprint of multiple-choice mastery."
+  );
+  const [questions, setQuestions] = useState<QuizQuestion[]>([
+    createEmptyQuestion(),
+  ]);
+  const [builderMessage, setBuilderMessage] = useState<string | null>(null);
+
+  // ---- student attempt ----
+  const [quizPhase, setQuizPhase] = useState<"intro" | "taking" | "results">(
+    "intro"
+  );
+  const [answers, setAnswers] = useState<number[]>([]);
+  const [timeLeft, setTimeLeft] = useState(TOTAL_TIME);
+  const [latestAttempt, setLatestAttempt] = useState<StudentResult | null>(null);
+  const timerRef = useRef<NodeJS.Timeout | null>(null);
+  const answersRef = useRef<number[]>([]);
+
+  useEffect(() => {
+    answersRef.current = answers;
+  }, [answers]);
+
+  // hydrate from localStorage
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const storedQuiz = window.localStorage.getItem(QUIZ_STORAGE_KEY);
+    const storedResults = window.localStorage.getItem(RESULTS_STORAGE_KEY);
+    const storedSession = window.localStorage.getItem(SESSION_STORAGE_KEY);
+
+    startTransition(() => {
+      if (storedQuiz) {
+        const parsed: Quiz = JSON.parse(storedQuiz);
+        setQuiz(parsed);
+      }
+      if (storedResults) setResults(JSON.parse(storedResults));
+      if (storedSession) setSession(JSON.parse(storedSession));
+      setHydrated(true);
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!hydrated || typeof window === "undefined") return;
+    if (quiz) {
+      window.localStorage.setItem(QUIZ_STORAGE_KEY, JSON.stringify(quiz));
+    } else {
+      window.localStorage.removeItem(QUIZ_STORAGE_KEY);
+    }
+  }, [quiz, hydrated]);
+
+  useEffect(() => {
+    if (!hydrated || typeof window === "undefined") return;
+    window.localStorage.setItem(RESULTS_STORAGE_KEY, JSON.stringify(results));
+  }, [results, hydrated]);
+
+  useEffect(() => {
+    const client = supabase;
+    if (!client) return;
+
+    let isMounted = true;
+    const fetchStudents = async () => {
+      const { data, error } = await client
+        .from("students")
+        .select("name, password_hash")
+        .order("name", { ascending: true });
+      if (!isMounted) return;
+      if (error) {
+        console.error("Failed to load student roster", error);
+        return;
+      }
+      const mapped: StudentUser[] = (data ?? []).map((record) => ({
+        name: record.name,
+        passwordHash: record.password_hash,
+      }));
+      setStudents(mapped);
+    };
+    fetchStudents();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!hydrated || typeof window === "undefined") return;
+    if (session) {
+      window.localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(session));
+    } else {
+      window.localStorage.removeItem(SESSION_STORAGE_KEY);
+    }
+  }, [session, hydrated]);
+
+  useEffect(() => {
+    if (!builderMessage) return;
+    const timeout = setTimeout(() => setBuilderMessage(null), 4000);
+    return () => clearTimeout(timeout);
+  }, [builderMessage]);
+
+  const stopTimer = () => {
+    if (timerRef.current) {
+      clearInterval(timerRef.current);
+      timerRef.current = null;
+    }
+  };
+
+  const handleSubmit = (reason: "manual" | "timeout" = "manual") => {
+    if (!quiz || !session) return;
+    const current = answersRef.current.length
+      ? answersRef.current
+      : Array(quiz.questions.length).fill(-1);
+
+    const correctCount = quiz.questions.reduce((count, question, index) => {
+      if (current[index] === question.answerIndex) return count + 1;
+      return count;
+    }, 0);
+
+    const percentage = Math.round((correctCount / quiz.questions.length) * 100);
+
+    const attempt: StudentResult = {
+      id: buildId(),
+      quizId: quiz.id,
+      studentName: session.name,
+      score: correctCount,
+      total: quiz.questions.length,
+      percentage,
+      submittedAt: new Date().toISOString(),
+      duration: TOTAL_TIME - timeLeft,
+      answers: current,
+      reason,
+    };
+
+    setResults((prev) => [attempt, ...prev].slice(0, 100));
+    setLatestAttempt(attempt);
+    setQuizPhase("results");
+    stopTimer();
+  };
+
+  useEffect(() => {
+    if (quizPhase !== "taking") {
+      stopTimer();
+      return;
+    }
+    timerRef.current = setInterval(() => {
+      setTimeLeft((prev) => {
+        if (prev <= 1) {
+          stopTimer();
+          handleSubmit("timeout");
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+    return stopTimer;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [quizPhase]);
+
+  // ---- derived ----
+  const answeredCount = useMemo(
+    () => answers.filter((answer) => answer >= 0).length,
+    [answers]
+  );
+
+  const averageScore = useMemo(() => {
+    if (!results.length) return 0;
+    const totalPercent = results.reduce((sum, e) => sum + e.percentage, 0);
+    return Math.round(totalPercent / results.length);
+  }, [results]);
+
+  const bestScore = useMemo(() => {
+    if (!results.length) return 0;
+    return Math.max(...results.map((e) => e.percentage));
+  }, [results]);
+
+  const fastestTime = useMemo(() => {
+    if (!results.length) return null;
+    return Math.min(...results.map((e) => e.duration));
+  }, [results]);
+
+  const studentAttempt = useMemo(() => {
+    if (!session || session.role !== "student" || !quiz) return null;
+    return (
+      results.find(
+        (r) => r.quizId === quiz.id && r.studentName === session.name
+      ) ?? null
+    );
+  }, [results, session, quiz]);
+
+  const hasAttempted = Boolean(studentAttempt);
+  const allAnswered = quiz ? answers.every((entry) => entry >= 0) : false;
+  const timerProgress = ((TOTAL_TIME - timeLeft) / TOTAL_TIME) * 360;
+
+  // ---- auth handlers ----
+  const resetAuthFields = () => {
+    setFormName("");
+    setFormPassword("");
+    setTeacherPinInput("");
+    setAuthError(null);
+  };
+
+  const registerStudent = async () => {
+    if (!supabase) {
+      setAuthError("Supabase client missing. Configure env first.");
+      return;
+    }
+    const name = formName.trim();
+    const password = formPassword.trim();
+    if (!name || !password) {
+      setAuthError("Enter a name and password to register.");
+      return;
+    }
+    if (password.length < 8) {
+      setAuthError("Password must be at least 8 characters.");
+      return;
+    }
+    if (
+      students.some((student) => student.name.toLowerCase() === name.toLowerCase())
+    ) {
+      setAuthError("That name is already registered. Try logging in.");
+      return;
+    }
+    try {
+      setAuthLoading(true);
+      const passwordHash = await bcrypt.hash(password, 10);
+      const { error } = await supabase
+        .from("students")
+        .insert({ name, password_hash: passwordHash });
+      if (error) {
+        setAuthError(error.message || "Failed to register.");
+        return;
+      }
+      setStudents((prev) => [...prev, { name, passwordHash }]);
+      setSession({ role: "student", name });
+      resetAuthFields();
+    } catch (error) {
+      console.error("Registration failed", error);
+      setAuthError("Unexpected error while registering.");
+    } finally {
+      setAuthLoading(false);
+    }
+  };
+
+  const loginStudent = async () => {
+    if (!supabase) {
+      setAuthError("Supabase client missing. Configure env first.");
+      return;
+    }
+    const name = formName.trim();
+    const password = formPassword.trim();
+    if (!name || !password) {
+      setAuthError("Enter both name and password.");
+      return;
+    }
+    try {
+      setAuthLoading(true);
+      const match = students.find(
+        (student) => student.name.toLowerCase() === name.toLowerCase()
+      );
+      if (!match) {
+        setAuthError("No registration found. Create an account first.");
+        return;
+      }
+      const passwordValid = await bcrypt.compare(password, match.passwordHash);
+      if (!passwordValid) {
+        setAuthError("Invalid credentials. Try again.");
+        return;
+      }
+      setSession({ role: "student", name: match.name });
+      resetAuthFields();
+    } catch (error) {
+      console.error("Login failed", error);
+      setAuthError("Unexpected error during login.");
+    } finally {
+      setAuthLoading(false);
+    }
+  };
+
+  const loginTeacher = () => {
+    if (teacherPinInput.trim() !== TEACHER_PIN) {
+      setAuthError("Incorrect teacher PIN.");
+      return;
+    }
+    setSession({ role: "teacher", name: "Teacher" });
+    resetAuthFields();
+  };
+
+  const logout = () => {
+    setSession(null);
+    setQuizPhase("intro");
+    setAnswers([]);
+    setTimeLeft(TOTAL_TIME);
+    setLatestAttempt(null);
+    stopTimer();
+    setAuthMode("student-login");
+    resetAuthFields();
+  };
+
+  // ---- builder handlers ----
+  const updateQuestionPrompt = (id: string, prompt: string) => {
+    setQuestions((prev) => prev.map((q) => (q.id === id ? { ...q, prompt } : q)));
+  };
+
+  const updateOption = (id: string, index: number, value: string) => {
+    setQuestions((prev) =>
+      prev.map((q) =>
+        q.id === id
+          ? {
+              ...q,
+              options: q.options.map((o, i) => (i === index ? value : o)),
+            }
+          : q
+      )
+    );
+  };
+
+  const setCorrectOption = (id: string, answerIndex: number) => {
+    setQuestions((prev) =>
+      prev.map((q) => (q.id === id ? { ...q, answerIndex } : q))
+    );
+  };
+
+  const addQuestion = () => {
+    if (questions.length >= softCap) {
+      setBuilderMessage("Soft cap reached (10 questions).");
+      return;
+    }
+    setQuestions((prev) => [...prev, createEmptyQuestion()]);
+  };
+
+  const removeQuestion = (id: string) => {
+    setQuestions((prev) =>
+      prev.length === 1 ? prev : prev.filter((q) => q.id !== id)
+    );
+  };
+
+  const validateQuiz = (): Quiz | null => {
+    const sanitized = questions
+      .map((q) => ({
+        ...q,
+        prompt: q.prompt.trim(),
+        options: q.options.map((o) => o.trim()),
+      }))
+      .filter((q) => q.prompt && q.options.every(Boolean));
+
+    if (!title.trim()) {
+      setBuilderMessage("Add a quiz title before publishing.");
+      return null;
+    }
+    if (!sanitized.length) {
+      setBuilderMessage("Add at least one complete question.");
+      return null;
+    }
+    return {
+      id: buildId(),
+      title: title.trim(),
+      description: description.trim() || "Multiple-choice lightning round.",
+      publishedAt: new Date().toISOString(),
+      questions: sanitized.map((q) => ({
+        ...q,
+        answerIndex: Math.min(Math.max(q.answerIndex, 0), q.options.length - 1),
+      })),
+    };
+  };
+
+  const publishQuiz = () => {
+    const next = validateQuiz();
+    if (!next) return;
+    setQuiz(next);
+    setBuilderMessage("Quiz published. Students are alerted instantly.");
+  };
+
+  const clearBuilder = () => {
+    setTitle("Pulse Quiz");
+    setDescription("A 10-minute sprint of multiple-choice mastery.");
+    setQuestions([createEmptyQuestion()]);
+    setBuilderMessage("Builder reset.");
+  };
+
+  const unpublishQuiz = () => {
+    setQuiz(null);
+    setBuilderMessage("Quiz taken offline.");
+  };
+
+  const clearResults = () => {
+    setResults([]);
+    setLatestAttempt(null);
+  };
+
+  // ---- student attempt handlers ----
+  const startQuiz = () => {
+    if (!quiz || hasAttempted) return;
+    setAnswers(Array(quiz.questions.length).fill(-1));
+    setQuizPhase("taking");
+    setTimeLeft(TOTAL_TIME);
+    setLatestAttempt(null);
+  };
+
+  const handleSelectAnswer = (questionIndex: number, optionIndex: number) => {
+    setAnswers((prev) => {
+      const next = [...prev];
+      next[questionIndex] = optionIndex;
+      return next;
+    });
+  };
+
+  // ===========================================================
+  // RENDER
+  // ===========================================================
+  if (!hydrated) {
+    return (
+      <div className="flex min-h-screen items-center justify-center text-white/70">
+        Loading…
+      </div>
+    );
+  }
+
+  const bubbles = (
+    <>
+      <motion.div
+        className="floating-bubble"
+        animate={{ y: [0, -30, 0], x: [0, 20, 0] }}
+        transition={{ duration: 10, repeat: Infinity, ease: "easeInOut" }}
+        style={{ top: "10%", left: "10%" }}
+      />
+      <motion.div
+        className="floating-bubble floating-bubble--cyan"
+        animate={{ y: [0, 30, 0], x: [0, -25, 0] }}
+        transition={{ duration: 12, repeat: Infinity, ease: "easeInOut" }}
+        style={{ bottom: "20%", right: "5%" }}
+      />
+    </>
+  );
+
+  // ---------- AUTH SCREEN ----------
+  if (!session) {
+    return (
+      <div className="relative flex min-h-screen w-full items-center justify-center overflow-hidden px-6 py-12">
+        {bubbles}
+        <motion.div
+          className="glass-panel pulse-border relative w-full max-w-md p-8"
+          initial={{ opacity: 0, y: 28, scale: 0.96 }}
+          animate={{ opacity: 1, y: 0, scale: 1 }}
+          transition={{ duration: 0.55, ease: [0.16, 1, 0.3, 1] }}
+        >
+          <div className="mb-6 flex flex-col items-center gap-2 text-center">
+            <span className="inline-flex items-center gap-2 rounded-full bg-white/10 px-4 py-1 text-sm font-medium text-cyan-200">
+              <Sparkles className="h-4 w-4" /> Pulse Quiz
+            </span>
+            <h1 className="text-3xl font-semibold text-white">Welcome back</h1>
+            <p className="text-sm text-slate-300">
+              Sign in to take quizzes or manage them as a teacher.
+            </p>
+          </div>
+
+          <div className="mb-6 grid grid-cols-3 gap-1 rounded-full bg-white/5 p-1 text-xs font-semibold uppercase tracking-[0.15em]">
+            {([
+              { key: "student-login", label: "Login" },
+              { key: "student-register", label: "Register" },
+              { key: "teacher", label: "Teacher" },
+            ] as const).map((tab) => (
+              <button
+                key={tab.key}
+                onClick={() => {
+                  setAuthMode(tab.key);
+                  setAuthError(null);
+                }}
+                className={clsx(
+                  "rounded-full px-3 py-2 transition",
+                  authMode === tab.key
+                    ? "bg-gradient-to-r from-purple-500 to-cyan-400 text-white shadow-lg shadow-purple-500/30"
+                    : "text-white/60 hover:text-white"
+                )}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
+
+          <AnimatePresence mode="wait">
+            <motion.div
+              key={authMode}
+              initial={{ opacity: 0, x: 24 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: -24 }}
+              transition={{ duration: 0.3 }}
+              className="space-y-4"
             >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
+              {authMode === "teacher" ? (
+                <label className="flex flex-col gap-2 text-sm text-white/70">
+                  Teacher PIN
+                  <input
+                    type="password"
+                    value={teacherPinInput}
+                    onChange={(e) => {
+                      setTeacherPinInput(e.target.value);
+                      setAuthError(null);
+                    }}
+                    onKeyDown={(e) => e.key === "Enter" && loginTeacher()}
+                    className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-base text-white outline-none ring-2 ring-transparent focus:border-white/40 focus:ring-cyan-400/40"
+                    placeholder="Enter 4-digit PIN"
+                  />
+                </label>
+              ) : (
+                <>
+                  <label className="flex flex-col gap-2 text-sm text-white/70">
+                    Student name
+                    <input
+                      value={formName}
+                      onChange={(e) => {
+                        setFormName(e.target.value);
+                        setAuthError(null);
+                      }}
+                      className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-base text-white outline-none ring-2 ring-transparent focus:border-white/40 focus:ring-cyan-400/40"
+                      placeholder="e.g. Aurora N."
+                    />
+                  </label>
+                  <label className="flex flex-col gap-2 text-sm text-white/70">
+                    Password
+                    <input
+                      type="password"
+                      value={formPassword}
+                      onChange={(e) => {
+                        setFormPassword(e.target.value);
+                        setAuthError(null);
+                      }}
+                      onKeyDown={(e) =>
+                        e.key === "Enter" &&
+                        (authMode === "student-register"
+                          ? registerStudent()
+                          : loginStudent())
+                      }
+                      className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-base text-white outline-none ring-2 ring-transparent focus:border-white/40 focus:ring-cyan-400/40"
+                      placeholder="At least 8 characters"
+                    />
+                  </label>
+                </>
+              )}
+
+              {authError && (
+                <p className="flex items-center gap-2 text-sm text-rose-300">
+                  <AlertCircle className="h-4 w-4" /> {authError}
+                </p>
+              )}
+
+              {authMode === "teacher" && (
+                <button
+                  onClick={loginTeacher}
+                  disabled={authLoading}
+                  aria-busy={authLoading}
+                  className={clsx(
+                    "inline-flex w-full items-center justify-center gap-2 rounded-full bg-gradient-to-r from-purple-500 to-cyan-400 px-5 py-3 text-sm font-semibold text-white shadow-lg shadow-purple-500/30",
+                    authLoading && "cursor-not-allowed opacity-60"
+                  )}
+                >
+                  <ShieldCheck className="h-4 w-4" />
+                  {authLoading ? "Checking…" : "Enter teacher cockpit"}
+                </button>
+              )}
+              {authMode === "student-login" && (
+                <button
+                  onClick={loginStudent}
+                  disabled={authLoading}
+                  aria-busy={authLoading}
+                  className={clsx(
+                    "inline-flex w-full items-center justify-center gap-2 rounded-full bg-gradient-to-r from-purple-500 to-cyan-400 px-5 py-3 text-sm font-semibold text-white shadow-lg shadow-purple-500/30",
+                    authLoading && "cursor-not-allowed opacity-60"
+                  )}
+                >
+                  <LogIn className="h-4 w-4" />
+                  {authLoading ? "Signing in…" : "Login as student"}
+                </button>
+              )}
+              {authMode === "student-register" && (
+                <button
+                  onClick={registerStudent}
+                  disabled={authLoading}
+                  aria-busy={authLoading}
+                  className={clsx(
+                    "inline-flex w-full items-center justify-center gap-2 rounded-full bg-gradient-to-r from-purple-500 to-cyan-400 px-5 py-3 text-sm font-semibold text-white shadow-lg shadow-purple-500/30",
+                    authLoading && "cursor-not-allowed opacity-60"
+                  )}
+                >
+                  <UserPlus className="h-4 w-4" />
+                  {authLoading ? "Creating…" : "Create student account"}
+                </button>
+              )}
+            </motion.div>
+          </AnimatePresence>
+
+        </motion.div>
+      </div>
+    );
+  }
+
+  // ---------- APP SHELL ----------
+  const header = (
+    <header className="glass-panel flex flex-wrap items-center justify-between gap-4 px-6 py-4">
+      <div className="flex items-center gap-3">
+        <span className="inline-flex h-10 w-10 items-center justify-center rounded-2xl bg-gradient-to-br from-purple-500 to-cyan-400 text-white">
+          {session.role === "teacher" ? (
+            <ShieldCheck className="h-5 w-5" />
+          ) : (
+            <GraduationCap className="h-5 w-5" />
+          )}
+        </span>
+        <div>
+          <p className="text-xs uppercase tracking-[0.3em] text-white/50">
+            {session.role === "teacher" ? "Teacher cockpit" : "Student lane"}
           </p>
+          <p className="text-lg font-semibold text-white">{session.name}</p>
         </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
+      </div>
+      <button
+        onClick={logout}
+        className="inline-flex items-center gap-2 rounded-full border border-white/15 px-4 py-2 text-sm text-white/70 transition hover:border-white/40 hover:text-white"
+      >
+        <LogOut className="h-4 w-4" /> Log out
+      </button>
+    </header>
+  );
+
+  // ---------- TEACHER VIEW ----------
+  if (session.role === "teacher") {
+    return (
+      <div className="relative min-h-screen w-full overflow-hidden pb-24">
+        {bubbles}
+        <main className="relative mx-auto flex w-full max-w-6xl flex-col gap-8 px-6 py-10 lg:px-10">
+          {header}
+
+          <section className="grid gap-8 xl:grid-cols-[1.1fr_0.9fr]">
+            <motion.div
+              className="glass-panel p-7"
+              initial={{ opacity: 0, y: 24 }}
+              animate={{ opacity: 1, y: 0 }}
+            >
+              <header className="mb-6 flex items-center justify-between gap-4">
+                <div>
+                  <p className="text-sm uppercase tracking-[0.3em] text-white/50">
+                    Build &amp; publish
+                  </p>
+                  <h2 className="text-2xl font-semibold text-white">
+                    Design the quiz
+                  </h2>
+                </div>
+                <button
+                  onClick={clearBuilder}
+                  className="inline-flex items-center gap-2 rounded-full border border-white/15 px-3 py-2 text-xs uppercase tracking-[0.25em] text-white/70 transition hover:border-white/40"
+                >
+                  <RefreshCcw className="h-4 w-4" /> Reset form
+                </button>
+              </header>
+
+              <div className="space-y-5">
+                <div className="grid gap-4 md:grid-cols-2">
+                  <label className="flex flex-col gap-2 text-sm text-white/70">
+                    Quiz title
+                    <input
+                      value={title}
+                      onChange={(e) => setTitle(e.target.value)}
+                      className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-base text-white outline-none ring-2 ring-transparent focus:border-white/40 focus:ring-purple-500/40"
+                      placeholder="e.g. Photosynthesis Sprint"
+                    />
+                  </label>
+                  <label className="flex flex-col gap-2 text-sm text-white/70">
+                    Subtitle / vibe
+                    <input
+                      value={description}
+                      onChange={(e) => setDescription(e.target.value)}
+                      className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-base text-white outline-none ring-2 ring-transparent focus:border-white/40 focus:ring-purple-500/40"
+                      placeholder="Pitch the challenge in one sentence"
+                    />
+                  </label>
+                </div>
+
+                <div className="space-y-4">
+                  {questions.map((question, index) => (
+                    <motion.div
+                      key={question.id}
+                      className="rounded-3xl border border-white/10 bg-slate-900/40 p-5"
+                      initial={{ opacity: 0, y: 20 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ delay: index * 0.05, duration: 0.4 }}
+                    >
+                      <div className="mb-4 flex items-center justify-between">
+                        <div>
+                          <p className="text-xs uppercase tracking-[0.35em] text-white/40">
+                            Question {index + 1}
+                          </p>
+                          <h3 className="text-lg font-semibold text-white">
+                            Prompt + answers
+                          </h3>
+                        </div>
+                        <button
+                          onClick={() => removeQuestion(question.id)}
+                          className="rounded-full border border-white/10 p-2 text-white/70 transition hover:border-white/40"
+                          aria-label="Remove question"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      </div>
+
+                      <textarea
+                        value={question.prompt}
+                        onChange={(e) =>
+                          updateQuestionPrompt(question.id, e.target.value)
+                        }
+                        className="min-h-[90px] w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-white outline-none ring-2 ring-transparent focus:border-white/40 focus:ring-cyan-400/40"
+                        placeholder="Type the question stem"
+                      />
+
+                      <div className="mt-4 grid gap-3">
+                        {question.options.map((option, optionIndex) => (
+                          <div
+                            key={`${question.id}-${optionIndex}`}
+                            className={clsx(
+                              "flex flex-wrap items-center gap-3 rounded-2xl border px-4 py-3",
+                              question.answerIndex === optionIndex
+                                ? "border-cyan-400/70 bg-cyan-400/10"
+                                : "border-white/10 bg-white/5"
+                            )}
+                          >
+                            <span className="text-sm uppercase tracking-[0.3em] text-white/50">
+                              {String.fromCharCode(65 + optionIndex)}
+                            </span>
+                            <input
+                              value={option}
+                              onChange={(e) =>
+                                updateOption(
+                                  question.id,
+                                  optionIndex,
+                                  e.target.value
+                                )
+                              }
+                              className="flex-1 bg-transparent text-white outline-none"
+                              placeholder="Answer choice"
+                            />
+                            <button
+                              onClick={() =>
+                                setCorrectOption(question.id, optionIndex)
+                              }
+                              className={clsx(
+                                "rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-[0.25em]",
+                                question.answerIndex === optionIndex
+                                  ? "bg-cyan-400 text-slate-900"
+                                  : "bg-white/10 text-white/70"
+                              )}
+                            >
+                              {question.answerIndex === optionIndex
+                                ? "Correct"
+                                : "Mark"}
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    </motion.div>
+                  ))}
+
+                  <button
+                    onClick={addQuestion}
+                    className="group flex w-full items-center justify-center gap-3 rounded-3xl border border-dashed border-white/20 bg-white/5 px-4 py-4 text-white/70 transition hover:border-white/50 hover:text-white"
+                  >
+                    <Plus className="h-5 w-5" /> Add another question
+                  </button>
+                </div>
+
+                <div className="flex flex-col gap-3 border-t border-white/5 pt-5 sm:flex-row">
+                  <button
+                    onClick={publishQuiz}
+                    className="inline-flex flex-1 items-center justify-center gap-3 rounded-full bg-gradient-to-r from-purple-500 via-fuchsia-500 to-cyan-400 px-6 py-4 text-lg font-semibold text-white shadow-lg shadow-purple-500/40"
+                  >
+                    <UploadCloud className="h-5 w-5" /> Publish quiz for students
+                  </button>
+                  <button
+                    onClick={() => setQuestions([createEmptyQuestion()])}
+                    className="inline-flex flex-1 items-center justify-center gap-3 rounded-full border border-white/20 px-6 py-4 text-white/70 transition hover:border-white/60 hover:text-white"
+                  >
+                    <BookOpenCheck className="h-5 w-5" /> New blank question
+                  </button>
+                </div>
+
+                {builderMessage && (
+                  <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white/80">
+                    {builderMessage}
+                  </div>
+                )}
+              </div>
+            </motion.div>
+
+            <motion.div
+              className="glass-panel flex flex-col gap-6 p-7"
+              initial={{ opacity: 0, y: 24 }}
+              animate={{ opacity: 1, y: 0 }}
+            >
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-xs uppercase tracking-[0.25em] text-white/50">
+                    Teacher radar
+                  </p>
+                  <h3 className="text-xl font-semibold text-white">
+                    Live overview
+                  </h3>
+                </div>
+                <BarChart3 className="h-6 w-6 text-cyan-300" />
+              </div>
+
+              {quiz ? (
+                <div className="rounded-2xl border border-cyan-400/30 bg-cyan-400/10 p-4 text-sm text-white/80">
+                  <p className="font-semibold text-white">{quiz.title}</p>
+                  <p className="text-white/60">
+                    {quiz.questions.length} questions · live for students
+                  </p>
+                  <button
+                    onClick={unpublishQuiz}
+                    className="mt-3 inline-flex items-center gap-2 rounded-full border border-white/20 px-3 py-1.5 text-xs text-white/70 transition hover:border-white/50"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" /> Take offline
+                  </button>
+                </div>
+              ) : (
+                <div className="rounded-2xl border border-white/10 bg-white/5 p-4 text-sm text-white/60">
+                  No quiz is live. Publish one to alert students.
+                </div>
+              )}
+
+              <div className="grid gap-4 sm:grid-cols-3">
+                <div className="rounded-2xl border border-white/5 bg-white/5 p-4">
+                  <p className="text-xs text-white/60">Questions live</p>
+                  <p className="text-3xl font-semibold text-white">
+                    {quiz?.questions.length ?? questions.length}
+                  </p>
+                </div>
+                <div className="rounded-2xl border border-white/5 bg-white/5 p-4">
+                  <p className="text-xs text-white/60">Attempts logged</p>
+                  <p className="text-3xl font-semibold text-white">
+                    {results.length}
+                  </p>
+                </div>
+                <div className="rounded-2xl border border-white/5 bg-white/5 p-4">
+                  <p className="text-xs text-white/60">Avg score</p>
+                  <p className="text-3xl font-semibold text-white">
+                    {averageScore}%
+                  </p>
+                </div>
+              </div>
+
+              <div className="rounded-3xl border border-white/5 bg-slate-950/40 p-4">
+                <div className="mb-3 flex items-center gap-3">
+                  <Trophy className="h-5 w-5 text-amber-300" />
+                  <div>
+                    <p className="text-sm text-white/60">Top performer</p>
+                    <p className="text-lg font-semibold text-white">
+                      {results[0]?.studentName ?? "Awaiting attempts"}
+                    </p>
+                  </div>
+                </div>
+                <div className="grid gap-2 text-sm text-white/70 md:grid-cols-2">
+                  <div className="flex items-center gap-2">
+                    <Target className="h-4 w-4 text-cyan-300" /> Best score
+                    <span className="text-white">{bestScore}%</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <TimerReset className="h-4 w-4 text-purple-300" /> Fastest
+                    <span className="text-white">
+                      {fastestTime !== null ? formatTime(fastestTime) : "—"}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between">
+                <p className="text-sm uppercase tracking-[0.3em] text-white/50">
+                  Leaderboard
+                </p>
+                {results.length > 0 && (
+                  <button
+                    onClick={clearResults}
+                    className="inline-flex items-center gap-2 rounded-full border border-red-400/50 px-3 py-1.5 text-xs uppercase tracking-[0.2em] text-red-200 transition hover:border-red-300"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" /> Clear
+                  </button>
+                )}
+              </div>
+
+              <div className="space-y-3">
+                {results.slice(0, 6).map((entry) => (
+                  <motion.div
+                    key={entry.id}
+                    className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3"
+                    initial={{ opacity: 0, x: 30 }}
+                    animate={{ opacity: 1, x: 0 }}
+                  >
+                    <div className="flex items-center justify-between text-sm text-white/70">
+                      <span className="font-semibold text-white">
+                        {entry.studentName}
+                      </span>
+                      <span>{formatTime(entry.duration)}</span>
+                    </div>
+                    <div className="mt-1 flex items-center justify-between">
+                      <span className="text-xs uppercase tracking-[0.3em] text-white/50">
+                        {new Date(entry.submittedAt).toLocaleTimeString([], {
+                          hour: "2-digit",
+                          minute: "2-digit",
+                        })}
+                      </span>
+                      <span className="text-lg font-semibold text-cyan-200">
+                        {entry.percentage}%
+                      </span>
+                    </div>
+                  </motion.div>
+                ))}
+                {!results.length && (
+                  <p className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white/60">
+                    Results stream in here once students submit.
+                  </p>
+                )}
+              </div>
+            </motion.div>
+          </section>
+        </main>
+      </div>
+    );
+  }
+
+  // ---------- STUDENT VIEW ----------
+  return (
+    <div className="relative min-h-screen w-full overflow-hidden pb-24">
+      {bubbles}
+      <main className="relative mx-auto flex w-full max-w-4xl flex-col gap-8 px-6 py-10 lg:px-10">
+        {header}
+
+        {/* No quiz available */}
+        {!quiz && (
+          <motion.section
+            className="glass-panel flex flex-col items-center gap-4 p-10 text-center"
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
           >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
+            <Bell className="h-12 w-12 text-white/40" />
+            <h2 className="text-2xl font-semibold text-white">
+              No quiz yet
+            </h2>
+            <p className="max-w-md text-slate-300">
+              When your teacher publishes a quiz, an alert will appear here.
+              Keep this page open!
+            </p>
+          </motion.section>
+        )}
+
+        {/* Quiz alert / intro */}
+        {quiz && quizPhase === "intro" && (
+          <AnimatePresence mode="wait">
+            {hasAttempted && studentAttempt ? (
+              <motion.section
+                key="attempted"
+                className="glass-panel p-8"
+                initial={{ opacity: 0, scale: 0.96 }}
+                animate={{ opacity: 1, scale: 1 }}
+              >
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm uppercase tracking-[0.3em] text-white/60">
+                      Attempt complete
+                    </p>
+                    <h3 className="text-3xl font-semibold text-white">
+                      {studentAttempt.percentage}% score
+                    </h3>
+                    <p className="text-white/70">
+                      {studentAttempt.score} / {studentAttempt.total} correct ·{" "}
+                      {formatTime(studentAttempt.duration)} elapsed
+                    </p>
+                  </div>
+                  <Trophy className="h-12 w-12 text-amber-300" />
+                </div>
+                <p className="mt-4 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-amber-200/80">
+                  You have one attempt per quiz, and it&apos;s been recorded.
+                  Wait for your teacher to publish a new quiz.
+                </p>
+              </motion.section>
+            ) : (
+              <motion.section
+                key="alert"
+                className="glass-panel pulse-border p-8"
+                initial={{ opacity: 0, y: 24, scale: 0.97 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+              >
+                <motion.div
+                  className="mb-4 inline-flex items-center gap-2 rounded-full bg-gradient-to-r from-purple-500 to-cyan-400 px-4 py-1.5 text-sm font-semibold text-white"
+                  animate={{ scale: [1, 1.06, 1] }}
+                  transition={{ duration: 1.4, repeat: Infinity }}
+                >
+                  <Bell className="h-4 w-4" /> New quiz available!
+                </motion.div>
+                <h2 className="text-3xl font-semibold text-white">
+                  {quiz.title}
+                </h2>
+                <p className="mt-2 text-slate-300">{quiz.description}</p>
+
+                <div className="mt-6 grid gap-3 sm:grid-cols-3">
+                  <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
+                    <p className="text-xs uppercase tracking-[0.3em] text-white/50">
+                      Questions
+                    </p>
+                    <p className="text-2xl font-semibold text-white">
+                      {quiz.questions.length}
+                    </p>
+                  </div>
+                  <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
+                    <p className="text-xs uppercase tracking-[0.3em] text-white/50">
+                      Time limit
+                    </p>
+                    <p className="text-2xl font-semibold text-white">10:00</p>
+                  </div>
+                  <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
+                    <p className="text-xs uppercase tracking-[0.3em] text-white/50">
+                      Attempts
+                    </p>
+                    <p className="text-2xl font-semibold text-white">1 only</p>
+                  </div>
+                </div>
+
+                <p className="mt-4 flex items-center gap-2 text-sm text-amber-200/80">
+                  <AlertCircle className="h-4 w-4" /> You get a single attempt.
+                  The 10-minute timer starts the moment you begin.
+                </p>
+
+                <button
+                  onClick={startQuiz}
+                  className="mt-6 inline-flex w-full items-center justify-center gap-2 rounded-full bg-gradient-to-r from-purple-500 to-cyan-400 px-5 py-4 text-lg font-semibold text-white shadow-lg shadow-purple-500/40"
+                >
+                  <Flame className="h-5 w-5" /> Start the 10-minute quiz
+                </button>
+              </motion.section>
+            )}
+          </AnimatePresence>
+        )}
+
+        {/* Taking the quiz */}
+        {quiz && quizPhase === "taking" && (
+          <section className="space-y-6">
+            <div className="glass-panel sticky top-4 z-10 flex items-center justify-between gap-4 p-5">
+              <div className="flex items-center gap-4">
+                <div
+                  className="timer-ring"
+                  style={{
+                    background: `conic-gradient(#22d3ee ${timerProgress}deg, rgba(255,255,255,0.08) ${timerProgress}deg)`,
+                  }}
+                >
+                  <div className="timer-ring-value">{formatTime(timeLeft)}</div>
+                </div>
+                <div className="text-sm text-white/70">
+                  <p className="flex items-center gap-2">
+                    <Clock10 className="h-4 w-4" /> Auto-submits at 00:00
+                  </p>
+                  <p>
+                    Answered {answeredCount}/{quiz.questions.length}
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => handleSubmit("manual")}
+                disabled={!allAnswered}
+                className={clsx(
+                  "inline-flex items-center gap-2 rounded-full px-5 py-3 text-sm font-semibold",
+                  allAnswered
+                    ? "bg-gradient-to-r from-purple-500 to-cyan-400 text-white"
+                    : "cursor-not-allowed border border-white/10 text-white/40"
+                )}
+              >
+                <CheckCircle2 className="h-5 w-5" /> Submit
+              </button>
+            </div>
+
+            {quiz.questions.map((question, index) => (
+              <motion.div
+                key={question.id}
+                className="glass-panel p-6"
+                initial={{ opacity: 0, y: 24 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: index * 0.05, duration: 0.4 }}
+              >
+                <div className="mb-3 flex items-center justify-between text-xs uppercase tracking-[0.35em] text-white/40">
+                  <span>Question {index + 1}</span>
+                  <span>
+                    {answers[index] >= 0 ? "Answered" : "Pending"}
+                  </span>
+                </div>
+                <h4 className="text-lg font-semibold text-white">
+                  {question.prompt || `Untitled question ${index + 1}`}
+                </h4>
+                <div className="mt-4 grid gap-3">
+                  {question.options.map((option, optionIndex) => (
+                    <button
+                      type="button"
+                      key={`${question.id}-option-${optionIndex}`}
+                      onClick={() => handleSelectAnswer(index, optionIndex)}
+                      className={clsx(
+                        "option-tile text-left text-white/90",
+                        answers[index] === optionIndex && "is-selected"
+                      )}
+                    >
+                      <span className="text-sm font-semibold text-white/70">
+                        {String.fromCharCode(65 + optionIndex)}.
+                      </span>
+                      <span>{option}</span>
+                    </button>
+                  ))}
+                </div>
+              </motion.div>
+            ))}
+
+            <button
+              onClick={() => handleSubmit("manual")}
+              disabled={!allAnswered}
+              className={clsx(
+                "inline-flex w-full items-center justify-center gap-3 rounded-full px-5 py-4 text-lg font-semibold",
+                allAnswered
+                  ? "bg-gradient-to-r from-purple-500 to-cyan-400 text-white"
+                  : "cursor-not-allowed border border-white/10 text-white/40"
+              )}
+            >
+              <CheckCircle2 className="h-5 w-5" /> Submit answers
+            </button>
+          </section>
+        )}
+
+        {/* Results */}
+        {quiz && quizPhase === "results" && latestAttempt && (
+          <motion.section
+            className="glass-panel bg-gradient-to-br from-purple-500/10 to-cyan-400/10 p-8"
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
           >
-            Documentation
-          </a>
-        </div>
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm uppercase tracking-[0.3em] text-white/60">
+                  Attempt saved
+                </p>
+                <h3 className="text-4xl font-semibold text-white">
+                  {latestAttempt.percentage}%
+                </h3>
+                <p className="text-white/70">
+                  {latestAttempt.score} / {latestAttempt.total} correct ·{" "}
+                  {formatTime(latestAttempt.duration)} elapsed
+                </p>
+              </div>
+              <Trophy className="h-14 w-14 text-amber-300" />
+            </div>
+            <div className="mt-4 grid gap-3 text-sm text-white/80 md:grid-cols-2">
+              <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
+                <p className="text-xs uppercase tracking-[0.3em] text-white/50">
+                  Submitted at
+                </p>
+                <p className="text-base text-white">
+                  {new Date(latestAttempt.submittedAt).toLocaleTimeString([], {
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  })}
+                </p>
+              </div>
+              <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
+                <p className="text-xs uppercase tracking-[0.3em] text-white/50">
+                  Timer exit
+                </p>
+                <p className="text-base text-white">
+                  {latestAttempt.reason === "manual"
+                    ? "Submitted with time to spare"
+                    : "Auto-locked at 00:00"}
+                </p>
+              </div>
+            </div>
+            <p className="mt-6 flex items-center gap-2 text-sm text-amber-200/80">
+              <UsersRound className="h-4 w-4" /> This was your one attempt. Your
+              score is on the teacher leaderboard.
+            </p>
+          </motion.section>
+        )}
       </main>
     </div>
   );

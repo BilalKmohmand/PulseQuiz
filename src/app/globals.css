@@ -1,8 +1,11 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: #030617;
+  --foreground: #f8fafc;
+  --primary: #a855f7;
+  --accent: #22d3ee;
+  --glass: rgba(255, 255, 255, 0.08);
 }
 
 @theme inline {
@@ -12,15 +15,163 @@
   --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+body {
+  min-height: 100vh;
+  background: radial-gradient(circle at top, #081232 0%, #05071a 40%, #010208 100%);
+  color: var(--foreground);
+  font-family: var(--font-geist-sans), "Space Grotesk", system-ui;
+  position: relative;
+  overflow-x: hidden;
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+body::before {
+  content: "";
+  position: fixed;
+  inset: -10%;
+  background: radial-gradient(
+    circle at 20% 20%,
+    rgba(168, 85, 247, 0.15),
+    transparent 45%
+  );
+  filter: blur(60px);
+  z-index: -2;
+}
+
+body::after {
+  content: "";
+  position: fixed;
+  inset: -20%;
+  background: radial-gradient(
+    circle at 70% 10%,
+    rgba(34, 211, 238, 0.12),
+    transparent 40%
+  );
+  filter: blur(80px);
+  z-index: -2;
+}
+
+.neon-grid {
+  background-image: linear-gradient(
+      rgba(255, 255, 255, 0.04) 1px,
+      transparent 1px
+    ),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.04) 1px, transparent 1px);
+  background-size: 50px 50px;
+  mask-image: radial-gradient(circle, rgba(0, 0, 0, 0.8), transparent 70%);
+}
+
+.glass-panel {
+  background: var(--glass);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 24px;
+  box-shadow: 0 20px 60px rgba(2, 6, 23, 0.35);
+  backdrop-filter: blur(18px);
+}
+
+.pulse-border {
+  position: relative;
+  isolation: isolate;
+}
+
+.pulse-border::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1px;
+  background: linear-gradient(120deg, rgba(168, 85, 247, 0.8), rgba(34, 211, 238, 0.8));
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  opacity: 0.65;
+  transition: opacity 0.3s ease;
+  z-index: -1;
+  pointer-events: none;
+}
+
+.pulse-border:hover::after {
+  opacity: 1;
+}
+
+.timer-ring {
+  position: relative;
+  width: 220px;
+  height: 220px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: radial-gradient(circle, rgba(8, 145, 178, 0.2), transparent 60%);
+}
+
+.timer-ring::before {
+  content: "";
+  position: absolute;
+  inset: 12px;
+  border-radius: 50%;
+  background: rgba(15, 23, 42, 0.75);
+  backdrop-filter: blur(12px);
+}
+
+.timer-ring-value {
+  position: relative;
+  font-size: 2.75rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+
+.stagger-card {
+  transform-origin: top;
+}
+
+.option-tile {
+  background: rgba(15, 23, 42, 0.55);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 1rem;
+  padding: 0.85rem 1rem;
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+  transition: border-color 0.2s ease, transform 0.2s ease;
+}
+
+.option-tile:hover {
+  border-color: rgba(168, 85, 247, 0.5);
+  transform: translateY(-1px);
+}
+
+.option-tile.is-selected {
+  border-color: rgba(34, 211, 238, 0.8);
+  box-shadow: 0 0 25px rgba(34, 211, 238, 0.35);
+}
+
+.blurred-sheen {
+  position: absolute;
+  inset: 2px;
+  border-radius: inherit;
+  background: linear-gradient(125deg, rgba(255, 255, 255, 0.15), transparent 65%);
+  opacity: 0.6;
+  z-index: -1;
+  pointer-events: none;
+}
+
+.floating-bubble {
+  position: absolute;
+  width: 220px;
+  height: 220px;
+  border-radius: 50%;
+  filter: blur(12px);
+  opacity: 0.5;
+  z-index: 0;
+  pointer-events: none;
+  background: radial-gradient(circle at 30% 30%, rgba(168, 85, 247, 0.35), transparent 60%);
+}
+
+.floating-bubble--cyan {
+  background: radial-gradient(circle at 30% 30%, rgba(34, 211, 238, 0.35), transparent 65%);
+}
+
+::selection {
+  background: rgba(168, 85, 247, 0.5);
+  color: #f8fafc;
 }
