@@ -1,36 +1,52 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+## Pulse Quiz Platform
 
-## Getting Started
+Animated quiz experience built with Next.js, Tailwind, Framer Motion, and Supabase. Teachers unlock a cockpit with a PIN, upload multiple-choice questions, and publish a single 10-minute quiz that students can take after registering with strong credentials.
 
-First, run the development server:
+## Requirements
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+- Node.js 18+
+- Supabase project (free tier is fine)
+
+## Environment variables
+
+Create a `.env.local` file in the project root and add your Supabase credentials:
+
+```
+NEXT_PUBLIC_SUPABASE_URL=your-project-url
+NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Restart `npm run dev` after adding or changing env values.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Supabase schema
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Create a table named `students` with the following shape:
 
-## Learn More
+| column        | type   | constraints                              |
+|---------------|--------|-------------------------------------------|
+| id            | uuid   | primary key, default `uuid_generate_v4()` |
+| name          | text   | unique, not null                          |
+| password_hash | text   | not null                                  |
 
-To learn more about Next.js, take a look at the following resources:
+Student passwords are hashed with bcrypt before being stored. No other tables are required for auth.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Install & run locally
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+```bash
+npm install
+npm run dev
+```
 
-## Deploy on Vercel
+Visit http://localhost:3000.
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## Usage notes
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- Students must register with a unique name and a password that is **at least 8 characters**. The UI disables buttons and shows progress copy while Supabase requests run.
+- Teacher access stays hidden unless the PIN is entered (PIN is defined inside `src/app/page.tsx` but never shown in the UI).
+- Quiz content, leaderboard entries, and unlocked session state are cached in `localStorage`, while student credentials live only in Supabase.
+
+## Folder highlights
+
+- `src/app/page.tsx` – full teacher/student experience plus Supabase auth calls.
+- `src/lib/supabaseClient.ts` – client factory that reads the env vars above.
+# PulseQuiz
