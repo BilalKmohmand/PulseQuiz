@@ -29,8 +29,6 @@ import clsx from "clsx";
 import { supabase } from "@/lib/supabaseClient";
 
 const TOTAL_TIME = 10 * 60; // 10 minutes in seconds
-const QUIZ_STORAGE_KEY = "pulse-quiz-data-v1";
-const RESULTS_STORAGE_KEY = "pulse-quiz-results-v1";
 const SESSION_STORAGE_KEY = "pulse-quiz-session-v1";
 const TEACHER_PIN = "4310";
 const softCap = 10;
@@ -136,63 +134,80 @@ export default function Home() {
     answersRef.current = answers;
   }, [answers]);
 
-  // hydrate from localStorage
+  // hydrate session from localStorage (device-specific)
   useEffect(() => {
     if (typeof window === "undefined") return;
-    const storedQuiz = window.localStorage.getItem(QUIZ_STORAGE_KEY);
-    const storedResults = window.localStorage.getItem(RESULTS_STORAGE_KEY);
     const storedSession = window.localStorage.getItem(SESSION_STORAGE_KEY);
-
     startTransition(() => {
-      if (storedQuiz) {
-        const parsed: Quiz = JSON.parse(storedQuiz);
-        setQuiz(parsed);
-      }
-      if (storedResults) setResults(JSON.parse(storedResults));
       if (storedSession) setSession(JSON.parse(storedSession));
       setHydrated(true);
     });
   }, []);
 
-  useEffect(() => {
-    if (!hydrated || typeof window === "undefined") return;
-    if (quiz) {
-      window.localStorage.setItem(QUIZ_STORAGE_KEY, JSON.stringify(quiz));
-    } else {
-      window.localStorage.removeItem(QUIZ_STORAGE_KEY);
-    }
-  }, [quiz, hydrated]);
-
-  useEffect(() => {
-    if (!hydrated || typeof window === "undefined") return;
-    window.localStorage.setItem(RESULTS_STORAGE_KEY, JSON.stringify(results));
-  }, [results, hydrated]);
-
+  // sync shared data (quiz, results, roster) from Supabase and poll for updates
   useEffect(() => {
     const client = supabase;
     if (!client) return;
 
-    let isMounted = true;
-    const fetchStudents = async () => {
-      const { data, error } = await client
-        .from("students")
-        .select("name, password")
-        .order("name", { ascending: true });
-      if (!isMounted) return;
-      if (error) {
-        console.error("Failed to load student roster", error);
-        return;
+    let active = true;
+    const syncFromSupabase = async () => {
+      const [quizRes, resultRes, studentRes] = await Promise.all([
+        client
+          .from("quizzes")
+          .select("payload, published_at")
+          .order("published_at", { ascending: false })
+          .limit(1),
+        client
+          .from("results")
+          .select("*")
+          .order("submitted_at", { ascending: false })
+          .limit(200),
+        client
+          .from("students")
+          .select("name, password")
+          .order("name", { ascending: true }),
+      ]);
+
+      if (!active) return;
+
+      if (!quizRes.error) {
+        const row = quizRes.data?.[0];
+        setQuiz(row ? (row.payload as Quiz) : null);
       }
-      const mapped: StudentUser[] = (data ?? []).map((record) => ({
-        name: record.name,
-        password: record.password,
-      }));
-      setStudents(mapped);
+
+      if (!resultRes.error && resultRes.data) {
+        setResults(
+          resultRes.data.map((record) => ({
+            id: record.id,
+            quizId: record.quiz_id,
+            studentName: record.student_name,
+            score: record.score,
+            total: record.total,
+            percentage: record.percentage,
+            submittedAt: record.submitted_at,
+            duration: record.duration,
+            answers: record.answers ?? [],
+            reason: record.reason,
+          }))
+        );
+      }
+
+      if (!studentRes.error && studentRes.data) {
+        setStudents(
+          studentRes.data.map((record) => ({
+            name: record.name,
+            password: record.password,
+          }))
+        );
+      }
     };
-    fetchStudents();
+
+    syncFromSupabase();
+    const interval = setInterval(syncFromSupabase, 4000);
 
     return () => {
-      isMounted = false;
+      active = false;
+      clearInterval(interval);
     };
   }, []);
 
@@ -218,7 +233,7 @@ export default function Home() {
     }
   };
 
-  const handleSubmit = (reason: "manual" | "timeout" = "manual") => {
+  const handleSubmit = async (reason: "manual" | "timeout" = "manual") => {
     if (!quiz || !session) return;
     const current = answersRef.current.length
       ? answersRef.current
@@ -248,6 +263,22 @@ export default function Home() {
     setLatestAttempt(attempt);
     setQuizPhase("results");
     stopTimer();
+
+    if (supabase) {
+      const { error } = await supabase.from("results").insert({
+        id: attempt.id,
+        quiz_id: attempt.quizId,
+        student_name: attempt.studentName,
+        score: attempt.score,
+        total: attempt.total,
+        percentage: attempt.percentage,
+        submitted_at: attempt.submittedAt,
+        duration: attempt.duration,
+        answers: attempt.answers,
+        reason: attempt.reason,
+      });
+      if (error) console.error("Failed to save result", error);
+    }
   };
 
   useEffect(() => {
@@ -474,11 +505,23 @@ export default function Home() {
     };
   };
 
-  const publishQuiz = () => {
+  const publishQuiz = async () => {
     const next = validateQuiz();
     if (!next) return;
+    if (supabase) {
+      await supabase.from("quizzes").delete().neq("id", "");
+      const { error } = await supabase.from("quizzes").insert({
+        id: next.id,
+        payload: next,
+        published_at: next.publishedAt,
+      });
+      if (error) {
+        setBuilderMessage(error.message || "Failed to publish quiz.");
+        return;
+      }
+    }
     setQuiz(next);
-    setBuilderMessage("Quiz published. Students are alerted instantly.");
+    setBuilderMessage("Quiz published. Students see it within seconds.");
   };
 
   const clearBuilder = () => {
@@ -488,12 +531,14 @@ export default function Home() {
     setBuilderMessage("Builder reset.");
   };
 
-  const unpublishQuiz = () => {
+  const unpublishQuiz = async () => {
+    if (supabase) await supabase.from("quizzes").delete().neq("id", "");
     setQuiz(null);
     setBuilderMessage("Quiz taken offline.");
   };
 
-  const clearResults = () => {
+  const clearResults = async () => {
+    if (supabase) await supabase.from("results").delete().neq("id", "");
     setResults([]);
     setLatestAttempt(null);
   };

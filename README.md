@@ -20,15 +20,49 @@ Restart `npm run dev` after adding or changing env values.
 
 ## Supabase schema
 
-Create a table named `students` with the following shape:
+The app uses three shared tables so every device sees the same quiz, roster, and results. Run this SQL in the Supabase SQL editor:
 
-| column   | type   | constraints                              |
-|----------|--------|-------------------------------------------|
-| id       | uuid   | primary key, default `uuid_generate_v4()` |
-| name     | text   | unique, not null                          |
-| password | text   | not null                                  |
+```sql
+-- Student roster (plaintext password per request)
+create table if not exists public.students (
+  id uuid primary key default gen_random_uuid(),
+  name text not null unique,
+  password text not null,
+  created_at timestamptz default now()
+);
 
-Passwords are stored as plain text in the `password` column. No other tables are required for auth.
+-- Single active quiz (stored as JSON payload)
+create table if not exists public.quizzes (
+  id text primary key,
+  payload jsonb not null,
+  published_at timestamptz default now()
+);
+
+-- Student attempt results
+create table if not exists public.results (
+  id text primary key,
+  quiz_id text,
+  student_name text,
+  score int,
+  total int,
+  percentage int,
+  submitted_at timestamptz,
+  duration int,
+  answers jsonb,
+  reason text
+);
+
+-- Enable RLS and allow the anon client full access (simple classroom setup)
+alter table public.students enable row level security;
+alter table public.quizzes enable row level security;
+alter table public.results enable row level security;
+
+create policy "anon all students" on public.students for all using (true) with check (true);
+create policy "anon all quizzes"  on public.quizzes  for all using (true) with check (true);
+create policy "anon all results"  on public.results  for all using (true) with check (true);
+```
+
+Passwords are stored as plain text in `students.password`. RLS is left fully open for a simple classroom deployment; tighten it if you need stricter access.
 
 ## Install & run locally
 
