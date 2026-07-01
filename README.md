@@ -22,13 +22,13 @@ Restart `npm run dev` after adding or changing env values.
 
 Create a table named `students` with the following shape:
 
-| column        | type   | constraints                              |
-|---------------|--------|-------------------------------------------|
-| id            | uuid   | primary key, default `uuid_generate_v4()` |
-| name          | text   | unique, not null                          |
-| password_hash | text   | not null                                  |
+| column   | type   | constraints                              |
+|----------|--------|-------------------------------------------|
+| id       | uuid   | primary key, default `uuid_generate_v4()` |
+| name     | text   | unique, not null                          |
+| password | text   | not null                                  |
 
-Student passwords are hashed with bcrypt before being stored. No other tables are required for auth.
+Passwords are stored as plain text in the `password` column. No other tables are required for auth.
 
 ## Install & run locally
 

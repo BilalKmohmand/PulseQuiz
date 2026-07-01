@@ -26,7 +26,6 @@ import {
   UsersRound,
 } from "lucide-react";
 import clsx from "clsx";
-import bcrypt from "bcryptjs";
 import { supabase } from "@/lib/supabaseClient";
 
 const TOTAL_TIME = 10 * 60; // 10 minutes in seconds
@@ -66,7 +65,7 @@ type StudentResult = {
 
 type StudentUser = {
   name: string;
-  passwordHash: string;
+  password: string;
 };
 
 type Session = {
@@ -177,7 +176,7 @@ export default function Home() {
     const fetchStudents = async () => {
       const { data, error } = await client
         .from("students")
-        .select("name, password_hash")
+        .select("name, password")
         .order("name", { ascending: true });
       if (!isMounted) return;
       if (error) {
@@ -186,7 +185,7 @@ export default function Home() {
       }
       const mapped: StudentUser[] = (data ?? []).map((record) => ({
         name: record.name,
-        passwordHash: record.password_hash,
+        password: record.password,
       }));
       setStudents(mapped);
     };
@@ -336,15 +335,14 @@ export default function Home() {
     }
     try {
       setAuthLoading(true);
-      const passwordHash = await bcrypt.hash(password, 10);
       const { error } = await supabase
         .from("students")
-        .insert({ name, password_hash: passwordHash });
+        .insert({ name, password });
       if (error) {
         setAuthError(error.message || "Failed to register.");
         return;
       }
-      setStudents((prev) => [...prev, { name, passwordHash }]);
+      setStudents((prev) => [...prev, { name, password }]);
       setSession({ role: "student", name });
       resetAuthFields();
     } catch (error) {
@@ -375,8 +373,7 @@ export default function Home() {
         setAuthError("No registration found. Create an account first.");
         return;
       }
-      const passwordValid = await bcrypt.compare(password, match.passwordHash);
-      if (!passwordValid) {
+      if (match.password !== password) {
         setAuthError("Invalid credentials. Try again.");
         return;
       }
