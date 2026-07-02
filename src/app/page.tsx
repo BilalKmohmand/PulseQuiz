@@ -1,6 +1,13 @@
 "use client";
 
-import { startTransition, useEffect, useMemo, useRef, useState } from "react";
+import {
+  startTransition,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ChangeEvent,
+} from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   AlertCircle,
@@ -119,6 +126,7 @@ export default function Home() {
     createEmptyQuestion(),
   ]);
   const [builderMessage, setBuilderMessage] = useState<string | null>(null);
+  const [importText, setImportText] = useState("");
 
   // ---- student attempt ----
   const [quizPhase, setQuizPhase] = useState<"intro" | "taking" | "results">(
@@ -548,6 +556,86 @@ export default function Home() {
     setBuilderMessage("Builder reset.");
   };
 
+  const importQuizFromJson = (raw: string) => {
+    const text = raw.trim();
+    if (!text) {
+      setBuilderMessage("Paste JSON or choose a file first.");
+      return;
+    }
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(text);
+    } catch {
+      setBuilderMessage("Invalid JSON. Check the format and try again.");
+      return;
+    }
+    const data = parsed as {
+      title?: unknown;
+      description?: unknown;
+      questions?: unknown;
+    };
+    if (!Array.isArray(data.questions) || data.questions.length === 0) {
+      setBuilderMessage('JSON must include a non-empty "questions" array.');
+      return;
+    }
+    const mapped: QuizQuestion[] = [];
+    for (const [i, entry] of data.questions.entries()) {
+      const item = entry as {
+        prompt?: unknown;
+        options?: unknown;
+        answerIndex?: unknown;
+        answer?: unknown;
+      };
+      const prompt = typeof item.prompt === "string" ? item.prompt.trim() : "";
+      const options = Array.isArray(item.options)
+        ? item.options.map((o) => String(o).trim())
+        : [];
+      if (!prompt || options.length < 2 || options.some((o) => !o)) {
+        setBuilderMessage(
+          `Question ${i + 1} is incomplete: needs a prompt and at least 2 non-empty options.`
+        );
+        return;
+      }
+      const rawIndex =
+        typeof item.answerIndex === "number"
+          ? item.answerIndex
+          : typeof item.answer === "number"
+          ? item.answer
+          : 0;
+      const answerIndex = Math.min(
+        Math.max(Math.trunc(rawIndex), 0),
+        options.length - 1
+      );
+      mapped.push({ id: buildId(), prompt, options, answerIndex });
+    }
+    if (typeof data.title === "string" && data.title.trim()) {
+      setTitle(data.title.trim());
+    }
+    if (typeof data.description === "string" && data.description.trim()) {
+      setDescription(data.description.trim());
+    }
+    setQuestions(mapped);
+    setImportText("");
+    setBuilderMessage(
+      `Imported ${mapped.length} question${
+        mapped.length > 1 ? "s" : ""
+      }. Review, then publish.`
+    );
+  };
+
+  const handleJsonFile = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    try {
+      const text = await file.text();
+      importQuizFromJson(text);
+    } catch {
+      setBuilderMessage("Could not read that file. Try again.");
+    } finally {
+      event.target.value = "";
+    }
+  };
+
   const unpublishQuiz = async () => {
     if (supabase) await supabase.from("quizzes").delete().neq("id", "");
     setQuiz(null);
@@ -825,6 +913,46 @@ export default function Home() {
               </header>
 
               <div className="space-y-5">
+                <div className="rounded-3xl border border-white/10 bg-white/5 p-5">
+                  <div className="mb-3 flex items-center gap-3">
+                    <UploadCloud className="h-5 w-5 text-cyan-300" />
+                    <div>
+                      <p className="text-sm font-semibold text-white">
+                        Import from JSON
+                      </p>
+                      <p className="text-xs text-white/50">
+                        Paste JSON or upload a .json file to fill the builder
+                        instantly, then review and publish.
+                      </p>
+                    </div>
+                  </div>
+                  <textarea
+                    value={importText}
+                    onChange={(e) => setImportText(e.target.value)}
+                    className="min-h-[120px] w-full rounded-2xl border border-white/10 bg-slate-900/50 px-4 py-3 font-mono text-xs text-white outline-none ring-2 ring-transparent focus:border-white/40 focus:ring-cyan-400/40"
+                    placeholder={
+                      '{\n  "title": "Photosynthesis Sprint",\n  "description": "Quick check",\n  "questions": [\n    { "prompt": "2 + 2?", "options": ["3", "4", "5", "6"], "answerIndex": 1 }\n  ]\n}'
+                    }
+                  />
+                  <div className="mt-3 flex flex-col gap-3 sm:flex-row">
+                    <button
+                      onClick={() => importQuizFromJson(importText)}
+                      className="inline-flex flex-1 items-center justify-center gap-2 rounded-full bg-white/10 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-white/20"
+                    >
+                      <BookOpenCheck className="h-4 w-4" /> Load into builder
+                    </button>
+                    <label className="inline-flex flex-1 cursor-pointer items-center justify-center gap-2 rounded-full border border-white/15 px-4 py-2.5 text-sm text-white/70 transition hover:border-white/40 hover:text-white">
+                      <UploadCloud className="h-4 w-4" /> Upload .json file
+                      <input
+                        type="file"
+                        accept="application/json,.json"
+                        onChange={handleJsonFile}
+                        className="hidden"
+                      />
+                    </label>
+                  </div>
+                </div>
+
                 <div className="grid gap-4 md:grid-cols-2">
                   <label className="flex flex-col gap-2 text-sm text-white/70">
                     Quiz title

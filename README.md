@@ -73,11 +73,29 @@ npm run dev
 
 Visit http://localhost:3000.
 
+## Importing a quiz from JSON
+
+Teachers can paste JSON or upload a `.json` file in the builder to fill every question at once, then review and publish. Expected shape:
+
+```json
+{
+  "title": "Photosynthesis Sprint",
+  "description": "Quick check",
+  "questions": [
+    { "prompt": "2 + 2?", "options": ["3", "4", "5", "6"], "answerIndex": 1 }
+  ]
+}
+```
+
+- `title` and `description` are optional.
+- Each question needs a `prompt` and at least two non-empty `options`.
+- `answerIndex` is the zero-based index of the correct option (`answer` is also accepted); it defaults to `0` if omitted.
+
 ## Usage notes
 
 - Students must register with a unique name and a password that is **at least 8 characters**. The UI disables buttons and shows progress copy while Supabase requests run.
 - Teacher access stays hidden unless the PIN is entered (PIN is defined inside `src/app/page.tsx` but never shown in the UI).
-- Quiz content, leaderboard entries, and unlocked session state are cached in `localStorage`, while student credentials live only in Supabase.
+- Quiz content, results, and the student roster are stored in Supabase and polled every few seconds so every device stays in sync. Only the logged-in session is cached in `localStorage`.
 
 ## Folder highlights
 
