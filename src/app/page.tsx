@@ -486,19 +486,28 @@ export default function Home() {
 
   const validateQuiz = (): Quiz | null => {
     const sanitized = questions
-      .map((q) => ({
-        ...q,
-        prompt: q.prompt.trim(),
-        options: q.options.map((o) => o.trim()),
-      }))
-      .filter((q) => q.prompt && q.options.every(Boolean));
+      .map((q) => {
+        const trimmedOptions = q.options.map((o) => o.trim());
+        const filledOptions = trimmedOptions.filter(Boolean);
+        const correctText = trimmedOptions[q.answerIndex];
+        const remappedIndex = filledOptions.findIndex((o) => o === correctText);
+        return {
+          ...q,
+          prompt: q.prompt.trim(),
+          options: filledOptions,
+          answerIndex: remappedIndex >= 0 ? remappedIndex : 0,
+        };
+      })
+      .filter((q) => q.prompt && q.options.length >= 2);
 
     if (!title.trim()) {
       setBuilderMessage("Add a quiz title before publishing.");
       return null;
     }
     if (!sanitized.length) {
-      setBuilderMessage("Add at least one complete question.");
+      setBuilderMessage(
+        "Add at least one question with a prompt and 2+ answer choices."
+      );
       return null;
     }
     return {
