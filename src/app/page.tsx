@@ -508,20 +508,37 @@ export default function Home() {
   const publishQuiz = async () => {
     const next = validateQuiz();
     if (!next) return;
-    if (supabase) {
-      await supabase.from("quizzes").delete().neq("id", "");
-      const { error } = await supabase.from("quizzes").insert({
-        id: next.id,
-        payload: next,
-        published_at: next.publishedAt,
-      });
-      if (error) {
-        setBuilderMessage(error.message || "Failed to publish quiz.");
-        return;
+    try {
+      if (supabase) {
+        const deleteRes = await supabase.from("quizzes").delete().neq("id", "");
+        if (deleteRes.error) {
+          console.error("Failed to clear previous quiz", deleteRes.error);
+          setBuilderMessage(
+            `Publish failed while clearing old quiz: ${deleteRes.error.message}`
+          );
+          return;
+        }
+        const { error } = await supabase.from("quizzes").insert({
+          id: next.id,
+          payload: next,
+          published_at: next.publishedAt,
+        });
+        if (error) {
+          console.error("Failed to publish quiz", error);
+          setBuilderMessage(`Publish failed: ${error.message}`);
+          return;
+        }
       }
+      setQuiz(next);
+      setBuilderMessage("Quiz published. Students see it within seconds.");
+    } catch (err) {
+      console.error("Unexpected error while publishing quiz", err);
+      setBuilderMessage(
+        `Unexpected error while publishing: ${
+          err instanceof Error ? err.message : "check console for details"
+        }`
+      );
     }
-    setQuiz(next);
-    setBuilderMessage("Quiz published. Students see it within seconds.");
   };
 
   const clearBuilder = () => {
