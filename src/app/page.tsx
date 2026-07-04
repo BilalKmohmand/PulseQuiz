@@ -2,6 +2,7 @@
 
 import {
   startTransition,
+  useCallback,
   useEffect,
   useMemo,
   useRef,
@@ -11,11 +12,13 @@ import {
 import { motion, AnimatePresence } from "framer-motion";
 import {
   AlertCircle,
+  Ban,
   BarChart3,
   Bell,
   BookOpenCheck,
   CheckCircle2,
   Clock10,
+  EyeOff,
   Flame,
   GraduationCap,
   LogIn,
@@ -98,6 +101,201 @@ const formatTime = (seconds: number) => {
   return `${mins}:${secs}`;
 };
 
+// ---- anti-cheat ----
+function useAntiCheat(
+  enabled: boolean,
+  containerRef: React.RefObject<HTMLElement | null>
+) {
+  const [violation, setViolation] = useState<"screenshot" | "copy" | null>(
+    null
+  );
+  const [erasing, setErasing] = useState(false);
+  const [focused, setFocused] = useState(true);
+  const timeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const focusIntervalRef = useRef<NodeJS.Timeout | null>(null);
+
+  const clearViolation = useCallback(() => setViolation(null), []);
+
+  const trigger = useCallback(
+    (type: "screenshot" | "copy") => {
+      if (!enabled) return;
+      setViolation(type);
+      if (timeoutRef.current) clearTimeout(timeoutRef.current);
+      timeoutRef.current = setTimeout(clearViolation, 3200);
+    },
+    [enabled, clearViolation]
+  );
+
+  const triggerErase = useCallback(() => {
+    if (!enabled) return;
+    setErasing(true);
+    trigger("copy");
+    setTimeout(() => setErasing(false), 750);
+  }, [enabled, trigger]);
+
+  useEffect(() => {
+    if (!enabled) {
+      setFocused(true);
+      return;
+    }
+
+    setFocused(document.hasFocus());
+
+    focusIntervalRef.current = setInterval(() => {
+      const nowFocused = document.hasFocus();
+      setFocused((prev) => {
+        if (prev && !nowFocused) trigger("screenshot");
+        return nowFocused;
+      });
+    }, 300);
+
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "PrintScreen") {
+        e.preventDefault();
+        trigger("screenshot");
+      }
+      if (
+        e.metaKey &&
+        e.shiftKey &&
+        (e.key === "4" || e.key === "5")
+      ) {
+        e.preventDefault();
+        trigger("screenshot");
+      }
+      if (
+        (e.ctrlKey || e.metaKey) &&
+        (e.key === "c" || e.key === "C")
+      ) {
+        const sel = window.getSelection()?.toString() ?? "";
+        if (sel.length > 0) {
+          e.preventDefault();
+          window.getSelection()?.removeAllRanges();
+          triggerErase();
+        }
+      }
+    };
+
+    const onVisibility = () => {
+      if (document.hidden) trigger("screenshot");
+    };
+
+    const onBlur = () => trigger("screenshot");
+
+    window.addEventListener("keydown", onKey);
+    document.addEventListener("visibilitychange", onVisibility);
+    window.addEventListener("blur", onBlur);
+
+    const el = containerRef.current;
+    const onCopyCut = (e: Event) => {
+      e.preventDefault();
+      window.getSelection()?.removeAllRanges();
+      triggerErase();
+    };
+    const onCtx = (e: Event) => {
+      e.preventDefault();
+      trigger("copy");
+    };
+    const onSelect = (e: Event) => {
+      e.preventDefault();
+      triggerErase();
+    };
+
+    if (el) {
+      el.addEventListener("copy", onCopyCut);
+      el.addEventListener("cut", onCopyCut);
+      el.addEventListener("contextmenu", onCtx);
+      el.addEventListener("selectstart", onSelect);
+    }
+
+    return () => {
+      if (focusIntervalRef.current) clearInterval(focusIntervalRef.current);
+      window.removeEventListener("keydown", onKey);
+      document.removeEventListener("visibilitychange", onVisibility);
+      window.removeEventListener("blur", onBlur);
+      if (el) {
+        el.removeEventListener("copy", onCopyCut);
+        el.removeEventListener("cut", onCopyCut);
+        el.removeEventListener("contextmenu", onCtx);
+        el.removeEventListener("selectstart", onSelect);
+      }
+      if (timeoutRef.current) clearTimeout(timeoutRef.current);
+    };
+  }, [enabled, trigger, triggerErase, containerRef]);
+
+  return { violation, erasing, focused, clearViolation };
+}
+
+function AntiCheatOverlay({
+  type,
+  onDismiss,
+}: {
+  type: "screenshot" | "copy";
+  onDismiss: () => void;
+}) {
+  return (
+    <motion.div
+      className="anti-cheat-overlay"
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      onClick={onDismiss}
+    >
+      <motion.div
+        className="glass-panel relative flex max-w-md flex-col items-center gap-5 p-10 text-center"
+        initial={{ scale: 0.8, y: 30 }}
+        animate={{ scale: 1, y: 0 }}
+        transition={{ type: "spring", stiffness: 260, damping: 22 }}
+      >
+        <motion.div
+          animate={{ rotate: [0, -10, 10, -6, 6, 0] }}
+          transition={{ duration: 0.55, repeat: 2 }}
+        >
+          {type === "screenshot" ? (
+            <EyeOff className="h-14 w-14 text-rose-400" />
+          ) : (
+            <Ban className="h-14 w-14 text-amber-400" />
+          )}
+        </motion.div>
+        <div>
+          <motion.h3
+            className="text-2xl font-bold text-white"
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.15 }}
+          >
+            {type === "screenshot"
+              ? "Screenshots not allowed"
+              : "Copying not allowed"}
+          </motion.h3>
+          <motion.p
+            className="mt-2 text-sm text-white/70"
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.25 }}
+          >
+            {type === "screenshot"
+              ? "Screen capture attempts are blocked during the quiz. Stay focused."
+              : "Text selection and copying are disabled. Characters erase on attempt."}
+          </motion.p>
+        </div>
+        <motion.div
+          className="mt-2 h-1 w-32 overflow-hidden rounded-full bg-white/10"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ delay: 0.4 }}
+        >
+          <motion.div
+            className="h-full rounded-full bg-gradient-to-r from-purple-500 to-cyan-400"
+            initial={{ width: "100%" }}
+            animate={{ width: "0%" }}
+            transition={{ duration: 3.2, ease: "linear" }}
+          />
+        </motion.div>
+      </motion.div>
+    </motion.div>
+  );
+}
+
 export default function Home() {
   const [hydrated, setHydrated] = useState(false);
 
@@ -137,6 +335,11 @@ export default function Home() {
   const [latestAttempt, setLatestAttempt] = useState<StudentResult | null>(null);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
   const answersRef = useRef<number[]>([]);
+  const quizContainerRef = useRef<HTMLDivElement>(null);
+  const { violation, erasing, focused, clearViolation } = useAntiCheat(
+    quizPhase === "taking",
+    quizContainerRef
+  );
 
   useEffect(() => {
     answersRef.current = answers;
@@ -1347,7 +1550,36 @@ export default function Home() {
 
         {/* Taking the quiz */}
         {quiz && quizPhase === "taking" && (
-          <section className="space-y-6">
+          <div
+            ref={quizContainerRef}
+            className={clsx(
+              "quiz-protected relative",
+              erasing && "text-erase",
+              !focused && "quiz-blurred"
+            )}
+          >
+            <AnimatePresence>
+              {violation && (
+                <AntiCheatOverlay
+                  type={violation}
+                  onDismiss={clearViolation}
+                />
+              )}
+            </AnimatePresence>
+            {/* Student watermark overlay */}
+            {session && (
+              <div className="watermark" aria-hidden="true">
+                <span>{session.name}</span>
+                <span>{session.name}</span>
+                <span>{session.name}</span>
+                <span>{session.name}</span>
+                <span>{session.name}</span>
+                <span>{session.name}</span>
+                <span>{session.name}</span>
+                <span>{session.name}</span>
+              </div>
+            )}
+            <section className="space-y-6">
             <div className="glass-panel sticky top-4 z-10 flex items-center justify-between gap-4 p-5">
               <div className="flex items-center gap-4">
                 <div
@@ -1432,6 +1664,7 @@ export default function Home() {
               <CheckCircle2 className="h-5 w-5" /> Submit answers
             </button>
           </section>
+          </div>
         )}
 
         {/* Results */}

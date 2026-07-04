@@ -175,3 +175,99 @@ body::after {
   background: rgba(168, 85, 247, 0.5);
   color: #f8fafc;
 }
+
+.anti-cheat-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(3, 6, 23, 0.92);
+  backdrop-filter: blur(16px);
+}
+
+.quiz-protected {
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+
+.text-erase {
+  animation: textErase 0.75s ease-in-out;
+}
+
+@keyframes textErase {
+  0% {
+    opacity: 1;
+    filter: blur(0px);
+    letter-spacing: normal;
+    color: inherit;
+  }
+  20% {
+    opacity: 0.7;
+    filter: blur(1px);
+    letter-spacing: 1px;
+  }
+  45% {
+    opacity: 0.25;
+    filter: blur(5px);
+    letter-spacing: 3px;
+    color: transparent;
+    text-shadow: 0 0 6px rgba(255, 255, 255, 0.25);
+  }
+  55% {
+    opacity: 0.15;
+    filter: blur(6px);
+    letter-spacing: 4px;
+    color: transparent;
+    text-shadow: 0 0 10px rgba(255, 255, 255, 0.15);
+  }
+  75% {
+    opacity: 0.6;
+    filter: blur(1px);
+    letter-spacing: 1px;
+  }
+  100% {
+    opacity: 1;
+    filter: blur(0px);
+    letter-spacing: normal;
+    color: inherit;
+  }
+}
+
+.quiz-blurred {
+  filter: blur(20px) brightness(0.3) grayscale(0.6) !important;
+  transition: filter 0.25s ease-in-out;
+  pointer-events: none !important;
+}
+
+.quiz-blurred * {
+  filter: blur(20px) brightness(0.3) grayscale(0.6) !important;
+}
+
+.watermark {
+  position: absolute;
+  inset: 0;
+  z-index: 50;
+  pointer-events: none;
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  grid-template-rows: repeat(4, 1fr);
+  gap: 2rem;
+  align-items: center;
+  justify-items: center;
+  overflow: hidden;
+}
+
+.watermark span {
+  font-size: 1.75rem;
+  font-weight: 800;
+  color: rgba(255, 255, 255, 0.08);
+  text-transform: uppercase;
+  letter-spacing: 0.15em;
+  transform: rotate(-30deg);
+  user-select: none;
+  white-space: nowrap;
+  margin: 0 1.5rem;
+}
