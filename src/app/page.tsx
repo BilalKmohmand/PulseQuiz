@@ -1218,7 +1218,7 @@ export default function Home() {
                         onChange={(e) =>
                           updateQuestionPrompt(question.id, e.target.value)
                         }
-                        className="min-h-[90px] w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-white outline-none ring-2 ring-transparent focus:border-white/40 focus:ring-cyan-400/40"
+                        className="min-h-[90px] w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-white outline-none ring-2 ring-transparent focus:border-white/40 focus:ring-cyan-400/40 whitespace-pre-wrap"
                         placeholder="Type the question stem"
                       />
 
@@ -1627,7 +1627,7 @@ export default function Home() {
                     {answers[index] >= 0 ? "Answered" : "Pending"}
                   </span>
                 </div>
-                <h4 className="text-lg font-semibold text-white">
+                <h4 className="text-lg font-semibold text-white whitespace-pre-wrap">
                   {question.prompt || `Untitled question ${index + 1}`}
                 </h4>
                 <div className="mt-4 grid gap-3">
