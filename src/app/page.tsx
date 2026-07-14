@@ -56,6 +56,7 @@ type Quiz = {
   description: string;
   questions: QuizQuestion[];
   publishedAt: string;
+  timeLimit: number; // in seconds
 };
 
 type StudentResult = {
@@ -316,10 +317,11 @@ export default function Home() {
   const [results, setResults] = useState<StudentResult[]>([]);
 
   // ---- teacher builder ----
-  const [title, setTitle] = useState("Pulse Quiz");
+  const [title, setTitle] = useState("ZAArQuiz");
   const [description, setDescription] = useState(
     "A 10-minute sprint of multiple-choice mastery."
   );
+  const [timeLimit, setTimeLimit] = useState(10 * 60); // 10 minutes in seconds
   const [questions, setQuestions] = useState<QuizQuestion[]>([
     createEmptyQuestion(),
   ]);
@@ -465,7 +467,7 @@ export default function Home() {
       total: quiz.questions.length,
       percentage,
       submittedAt: new Date().toISOString(),
-      duration: TOTAL_TIME - timeLeft,
+      duration: (quiz.timeLimit || TOTAL_TIME) - timeLeft,
       answers: current,
       reason,
     };
@@ -544,7 +546,8 @@ export default function Home() {
 
   const hasAttempted = Boolean(studentAttempt);
   const allAnswered = quiz ? answers.every((entry) => entry >= 0) : false;
-  const timerProgress = ((TOTAL_TIME - timeLeft) / TOTAL_TIME) * 360;
+  const currentQuizTimeLimit = quiz?.timeLimit || TOTAL_TIME;
+  const timerProgress = ((currentQuizTimeLimit - timeLeft) / currentQuizTimeLimit) * 360;
 
   // ---- auth handlers ----
   const resetAuthFields = () => {
@@ -718,6 +721,7 @@ export default function Home() {
       title: title.trim(),
       description: description.trim() || "Multiple-choice lightning round.",
       publishedAt: new Date().toISOString(),
+      timeLimit: timeLimit,
       questions: sanitized.map((q) => ({
         ...q,
         answerIndex: Math.min(Math.max(q.answerIndex, 0), q.options.length - 1),
@@ -762,8 +766,9 @@ export default function Home() {
   };
 
   const clearBuilder = () => {
-    setTitle("Pulse Quiz");
+    setTitle("ZAArQuiz");
     setDescription("A 10-minute sprint of multiple-choice mastery.");
+    setTimeLimit(10 * 60);
     setQuestions([createEmptyQuestion()]);
     setBuilderMessage("Builder reset.");
   };
@@ -865,7 +870,7 @@ export default function Home() {
     if (!quiz || hasAttempted) return;
     setAnswers(Array(quiz.questions.length).fill(-1));
     setQuizPhase("taking");
-    setTimeLeft(TOTAL_TIME);
+    setTimeLeft(quiz.timeLimit || TOTAL_TIME);
     setLatestAttempt(null);
   };
 
@@ -1185,6 +1190,20 @@ export default function Home() {
                     />
                   </label>
                 </div>
+
+                <label className="flex flex-col gap-2 text-sm text-white/70">
+                  Time limit (minutes)
+                  <input
+                    type="number"
+                    min="1"
+                    max="60"
+                    value={Math.round(timeLimit / 60)}
+                    onChange={(e) => setTimeLimit(Math.max(60, Math.min(3600, Number(e.target.value) * 60)))}
+                    className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-base text-white outline-none ring-2 ring-transparent focus:border-white/40 focus:ring-purple-500/40"
+                    placeholder="10"
+                  />
+                  <p className="text-xs text-white/40">Students will have this much time to complete all questions.</p>
+                </label>
 
                 <div className="space-y-4">
                   {questions.map((question, index) => (
