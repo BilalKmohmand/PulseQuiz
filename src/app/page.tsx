@@ -39,7 +39,7 @@ import clsx from "clsx";
 import { supabase } from "@/lib/supabaseClient";
 
 const TOTAL_TIME = 10 * 60; // 10 minutes in seconds
-const SESSION_STORAGE_KEY = "pulse-quiz-session-v1";
+const SESSION_STORAGE_KEY = "zaar-quiz-session-v1";
 const TEACHER_PIN = "4310";
 const softCap = 10;
 
